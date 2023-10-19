@@ -1,0 +1,98 @@
+<html>
+    <head>
+        <title>Botan Post-Quantum Key Agreement Test Server</title>
+        <style>
+            .pqc {
+                color: darkseagreen;
+            }
+
+            .notpqc {
+                color: palevioletred;
+            }
+
+            #kex_algo {
+                font-style: italic;
+                font-weight: bold;
+            }
+
+            body {
+                font-family: Verdana, Geneva, Tahoma, sans-serif;
+                padding: 40px
+            }
+
+            h1 {
+                margin-top: 8px;
+            }
+
+            a {
+                color:darkorchid;
+                text-decoration: none;
+            }
+
+            a:hover {
+                text-decoration: underline;
+            }
+
+            .logo {
+                float: left;
+                margin-right: 40px;
+            }
+
+            .content {
+                float: left;
+                max-width: 700px;
+            }
+        </style>
+    </head>
+    <body>
+        <div><a href="https://www.botan-crypto.org"><img src="small_logo.png" width="50" height="50" class="logo"></a></div>
+        <div class="content">
+            
+            <h1>Botan: Post-Quantum Key Agreement</h1>
+            
+            <p>Use this to test interoperability with Botan's TLS implementation. You can use hybrid and non-hybrid PQC algorithms for your key exchange.</p>
+            <p><a href="https://botan.randombit.net">Botan</a> is a cryptographic library written in modern C++.</p>
+            <p>For details, including supported key agreements, see the announcement in <a href="https://github.com/randombit/botan/discussions/3747">GitHub Discussions</a>.</p>
+
+            <h2>TLS Key Exchange Algorithm</h2>
+
+            <p>Your browser negotiated <span id="kex_algo">unknown</span> <span id="kex_algo_type"></span> for the key exchange with this server.</p>
+
+            <h2>Contact</h2>
+            <p>Please don't hesitate to contact us via <a href="mailto:pq-test@botan-crypto.org">pq-test@botan-crypto.org</a></p>
+            
+            <h2>Other Test Servers</h2>
+            <p>Known test servers provided by other vendors include:</p>
+            <ul>
+                <li><a href="https://pq.cloudflareresearch.com">Cloudflare Research</a></li>
+                <li><a href="https://test.openquantumsafe.org">Open Quantum Safe</a></li>
+            <ul>
+
+        </div>
+       
+        <script>
+            fetch('/api/connection_details')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    name_field = document.getElementById('kex_algo')
+                    type_field = document.getElementById('kex_algo_type')
+                    name_field.innerHTML = data.kex_algo;
+                    if(data.is_quantum_safe) {
+                        name_field.classList.add("pqc")
+                        type_field.innerHTML = "(quantum secure)"
+                    } else {
+                        name_field.classList.add("notpqc")
+                        type_field.innerHTML = "(not quantum secure)"
+                    }
+                })
+                .catch(error => {
+                    console.error('There was a problem with the fetch operation: ', error);
+                });
+        </script>
+    </body>
+</html>
