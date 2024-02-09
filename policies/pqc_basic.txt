@@ -1,3 +1,4 @@
 allow_tls13 = true
 allow_tls12 = true
+ciphers = ChaCha20Poly1305 AES-256/GCM
 key_exchange_groups = x25519/Kyber-768-r3 x25519 secp256r1

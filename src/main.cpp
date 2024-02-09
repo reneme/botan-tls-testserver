@@ -8,6 +8,7 @@
  *   www.boost.org/doc/libs/1_83_0/libs/beast/example/http/server/awaitable/http_server_awaitable.cpp
  */
 
+#include <chrono>
 #include <concepts>
 #include <fstream>
 #include <iomanip>
@@ -133,7 +134,9 @@ auto make_final_completion_handler(const std::string& context) {
          try {
             std::rethrow_exception(std::move(e));
          } catch(const std::exception& ex) {
-            std::cerr << context << ex.what() << std::endl;
+            const auto now = std::chrono::system_clock::now();
+            const std::time_t t_c = std::chrono::system_clock::to_time_t(now);
+            std::cerr << std::ctime(&t_c) << " " << context << ": " << ex.what() << std::endl;
          }
       }
    };
