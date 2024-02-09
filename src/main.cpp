@@ -162,6 +162,8 @@ beast::string_view mime_type(beast::string_view path) {
       return "application/json";
    if(iequals(ext, ".png"))
       return "image/png";
+   if(iequals(ext, ".ico"))
+      return "image/png";
    if(iequals(ext, ".jpe"))
       return "image/jpeg";
    if(iequals(ext, ".jpeg"))
