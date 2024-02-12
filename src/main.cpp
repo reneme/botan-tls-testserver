@@ -30,6 +30,8 @@
 #include <botan/tls_session_manager_memory.h>
 #include <botan/version.h>
 
+#include "ocsp_cache.h"
+
 namespace {
 
 namespace beast = boost::beast;    // from <boost/beast.hpp>
@@ -92,12 +94,23 @@ class Basic_Credentials_Manager final : public Botan::Credentials_Manager {
 
 class TlsHttpCallbacks final : public Botan::TLS::StreamCallbacks {
    public:
+      TlsHttpCallbacks(std::shared_ptr<OCSP_Cache> ocsp_cache) : m_ocsp_cache(std::move(ocsp_cache)) {}
+
       Botan::KEM_Encapsulation tls_kem_encapsulate(Botan::TLS::Group_Params group,
                                                    const std::vector<uint8_t>& encoded_public_key,
                                                    Botan::RandomNumberGenerator& rng,
                                                    const Botan::TLS::Policy& policy) override {
          m_group = group;
          return Botan::TLS::StreamCallbacks::tls_kem_encapsulate(group, encoded_public_key, rng, policy);
+      }
+
+      std::vector<uint8_t> tls_provide_cert_status(const std::vector<Botan::X509_Certificate>& chain,
+                                                   const Botan::TLS::Certificate_Status_Request& csr) override {
+         if(chain.size() < 2) {
+            return {};
+         }
+
+         return m_ocsp_cache->getOCSPResponse(chain[1], chain[0]);
       }
 
       std::string collect_connection_details_as_json() const {
@@ -112,6 +125,7 @@ class TlsHttpCallbacks final : public Botan::TLS::StreamCallbacks {
 
    private:
       Botan::TLS::Group_Params m_group = Botan::TLS::Group_Params::NONE;
+      std::shared_ptr<OCSP_Cache> m_ocsp_cache;
 };
 
 inline std::shared_ptr<Botan::TLS::Policy> load_tls_policy(const std::string& policy_type) {
@@ -330,12 +344,13 @@ http::message_generator handle_api_request(http::request<Body, http::basic_field
 
 net::awaitable<void> do_session(tcp_stream stream,
                                 std::shared_ptr<Botan::TLS::Context> tls_ctx,
+                                std::shared_ptr<OCSP_Cache> ocsp_cache,
                                 std::string_view document_root) {
    // This buffer is required to persist across reads
    beast::flat_buffer buffer;
 
    // Set up Botan's TLS stack
-   auto callbacks = std::make_shared<TlsHttpCallbacks>();
+   auto callbacks = std::make_shared<TlsHttpCallbacks>(ocsp_cache);
    Botan::TLS::Stream<tcp_stream> tls_stream(std::move(stream), std::move(tls_ctx), callbacks);
 
    try {
@@ -383,6 +398,7 @@ net::awaitable<void> do_session(tcp_stream stream,
 
 net::awaitable<void> do_listen(tcp::endpoint endpoint,
                                std::shared_ptr<Botan::TLS::Context> tls_ctx,
+                               std::shared_ptr<OCSP_Cache> ocsp_cache,
                                std::string_view document_root) {
    auto acceptor = net::use_awaitable.as_default_on(tcp::acceptor(co_await net::this_coro::executor));
    acceptor.open(endpoint.protocol());
@@ -393,9 +409,10 @@ net::awaitable<void> do_listen(tcp::endpoint endpoint,
    // If max_clients is zero in the beginning, we'll serve forever
    // otherwise we'll count down and stop eventually.
    while(true) {
-      boost::asio::co_spawn(acceptor.get_executor(),
-                            do_session(tcp_stream(co_await acceptor.async_accept()), tls_ctx, document_root),
-                            make_final_completion_handler("Session"));
+      boost::asio::co_spawn(
+         acceptor.get_executor(),
+         do_session(tcp_stream(co_await acceptor.async_accept()), tls_ctx, ocsp_cache, document_root),
+         make_final_completion_handler("Session"));
    }
 }
 
@@ -410,6 +427,8 @@ int main(int argc, char* argv[]) {
       ("policy", boost::program_options::value<std::string>()->default_value("default"), "Botan policy file (default: Botan's default policy)")
       ("cert", boost::program_options::value<std::string>()->required(), "Path to the server's certificate chain")
       ("key", boost::program_options::value<std::string>()->required(), "Path to the server's certificate private key file")
+      ("ocsp-request-timeout", boost::program_options::value<uint64_t>()->default_value(10), "OCSP request timeout in seconds")
+      ("ocsp-cache-time", boost::program_options::value<uint64_t>()->default_value(6 * 60), "Cache validity time for OCSP responses in minutes")
       ("document-root", boost::program_options::value<std::string>()->default_value("webroot"), "Path to the server's static documents folder");
    // clang-format on
 
@@ -443,11 +462,14 @@ int main(int argc, char* argv[]) {
       const auto num_threads = std::thread::hardware_concurrency();
       net::io_context io{static_cast<int>(num_threads)};
       auto address = net::ip::make_address("0.0.0.0");
-      boost::asio::co_spawn(io,
-                            do_listen(tcp::endpoint{address, port},
-                                      std::make_shared<Botan::TLS::Context>(creds, rng, session_mgr, tls_policy),
-                                      document_root),
-                            make_final_completion_handler("Acceptor"));
+      boost::asio::co_spawn(
+         io,
+         do_listen(tcp::endpoint{address, port},
+                   std::make_shared<Botan::TLS::Context>(creds, rng, session_mgr, tls_policy),
+                   std::make_shared<OCSP_Cache>(std::chrono::minutes(vm["ocsp-cache-time"].as<uint64_t>()),
+                                                std::chrono::seconds(vm["ocsp-request-timeout"].as<uint64_t>())),
+                   document_root),
+         make_final_completion_handler("Acceptor"));
 
       std::vector<std::jthread> threads;
       for(size_t i = 2; i <= num_threads; ++i) {

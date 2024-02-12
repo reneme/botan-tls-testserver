@@ -13,7 +13,10 @@ set_target_properties(Botan::Botan
 set(Boost_USE_STATIC_LIBS ON)
 find_package(Boost 1.80.0 REQUIRED program_options)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME}
+               src/ocsp_cache.h
+               src/ocsp_cache.cpp
+               src/main.cpp)
 
 set_target_properties(${PROJECT_NAME}
                       PROPERTIES
